@@ -8,11 +8,11 @@ export const MOCK_BRANCHES: Branch[] = [
 ];
 
 export const MOCK_EMPLOYEES: Employee[] = [
-  { id: 'E-101', name: 'Rahim Uddin', branch_id: 'b1', designation: 'Branch Manager', base_salary: 15000, commission_type: 'A', status: 'ACTIVE' },
-  { id: 'E-102', name: 'Karim Hasan', branch_id: 'b1', designation: 'Field Officer', base_salary: 8000, commission_type: 'B', status: 'ACTIVE' },
-  { id: 'E-103', name: 'Salma Begum', branch_id: 'b2', designation: 'Field Officer', base_salary: 8500, commission_type: 'A', status: 'ACTIVE' },
-  { id: 'E-104', name: 'Jamal Hossain', branch_id: 'b2', designation: 'Branch Manager', base_salary: 14000, commission_type: 'A', status: 'ACTIVE' },
-  { id: 'E-105', name: 'Nasrin Akter', branch_id: 'b3', designation: 'Field Officer', base_salary: 8000, commission_type: 'C', status: 'ACTIVE' }
+  { id: 'E-101', employeeCode: 'E-101', employee_code: 'E-101', name: 'Rahim Uddin', branch_id: 'b1', designation: 'Branch Manager', base_salary: 15000, commission_type: 'A', status: 'ACTIVE' },
+  { id: 'E-102', employeeCode: 'E-102', employee_code: 'E-102', name: 'Karim Hasan', branch_id: 'b1', designation: 'Field Officer', base_salary: 8000, commission_type: 'B', status: 'ACTIVE' },
+  { id: 'E-103', employeeCode: 'E-103', employee_code: 'E-103', name: 'Salma Begum', branch_id: 'b2', designation: 'Field Officer', base_salary: 8500, commission_type: 'A', status: 'ACTIVE' },
+  { id: 'E-104', employeeCode: 'E-104', employee_code: 'E-104', name: 'Jamal Hossain', branch_id: 'b2', designation: 'Branch Manager', base_salary: 14000, commission_type: 'A', status: 'ACTIVE' },
+  { id: 'E-105', employeeCode: 'E-105', employee_code: 'E-105', name: 'Nasrin Akter', branch_id: 'b3', designation: 'Field Officer', base_salary: 8000, commission_type: 'C', status: 'ACTIVE' }
 ];
 
 export const MOCK_USERS: User[] = [
@@ -29,6 +29,9 @@ export const MOCK_ACCOUNT_OPENINGS: AccountOpening[] = [
     term: 5, 
     collection_amount: 1200, 
     opened_by_employee_id: 'E-101', 
+    agentCode: 'E-101',
+    assignedEmployeeId: 'E-101',
+    employeeCode: 'E-101',
     branch_id: 'b1', 
     opening_date: '2023-10-15', 
     customer_name: 'John Doe',
@@ -49,6 +52,9 @@ export const MOCK_ACCOUNT_OPENINGS: AccountOpening[] = [
     term: 10, 
     collection_amount: 5000, 
     opened_by_employee_id: 'E-101', 
+    agentCode: 'E-101',
+    assignedEmployeeId: 'E-101',
+    employeeCode: 'E-101',
     branch_id: 'b1', 
     opening_date: '2023-10-18', 
     customer_name: 'Jane Smith',
@@ -69,6 +75,9 @@ export const MOCK_ACCOUNT_OPENINGS: AccountOpening[] = [
     term: 3, 
     collection_amount: 500, 
     opened_by_employee_id: 'E-102', 
+    agentCode: 'E-102',
+    assignedEmployeeId: 'E-102',
+    employeeCode: 'E-102',
     branch_id: 'b1', 
     opening_date: '2023-10-20', 
     customer_name: 'Alice Wonder',
@@ -89,6 +98,9 @@ export const MOCK_ACCOUNT_OPENINGS: AccountOpening[] = [
     term: 5, 
     collection_amount: 2000, 
     opened_by_employee_id: 'E-103', 
+    agentCode: 'E-103',
+    assignedEmployeeId: 'E-103',
+    employeeCode: 'E-103',
     branch_id: 'b2', 
     opening_date: '2023-10-22', 
     customer_name: 'Bob Builder',

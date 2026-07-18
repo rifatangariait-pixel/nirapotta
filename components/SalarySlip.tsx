@@ -1,16 +1,19 @@
 
 import React, { useMemo } from 'react';
-import { SalaryRow, AccountOpening, CommissionStructure } from '../types';
+import { SalaryRow, AccountOpening, CommissionStructure, BonusSettings, CenterCollectionRecord } from '../types';
 import { bonusRates } from '../services/bonusRates';
+import { getMonthlyTotalCollection } from '../services/accountService';
 
 interface SalarySlipProps {
   row: SalaryRow;
   month: string;
   accounts: AccountOpening[];
   commissionRates: Record<string, CommissionStructure>;
+  bonusSettings?: BonusSettings;
+  collections?: CenterCollectionRecord[];
 }
 
-const SalarySlip: React.FC<SalarySlipProps> = ({ row, month, accounts, commissionRates }) => {
+const SalarySlip: React.FC<SalarySlipProps> = ({ row, month, accounts, commissionRates, bonusSettings, collections = [] }) => {
   // --- DYNAMIC COMMISSION RATES ---
   // Fix: Use row.commission_type if available (overridden), otherwise fallback to employee default
   const commType = row.commission_type || row.employee.commission_type || 'A';
@@ -55,12 +58,20 @@ const SalarySlip: React.FC<SalarySlipProps> = ({ row, month, accounts, commissio
     const normalize = (s: string | undefined) => String(s || '').trim().toLowerCase();
     const targetEmpId = normalize(row.employee.id);
 
-    return accounts.filter(acc => 
-      normalize(acc.opened_by_employee_id) === targetEmpId && 
-      acc.counted_month === month && 
-      acc.collection_amount >= 600
-    );
-  }, [accounts, row.employee.id, month]);
+    const settings = bonusSettings || {
+      bonusEnabled: true,
+      bonusDelayMonths: 1,
+      minimumMonthlyCollection: 600
+    };
+
+    return accounts.filter(acc => {
+      if (normalize(acc.opened_by_employee_id) !== targetEmpId) return false;
+      if (acc.counted_month !== month) return false;
+      
+      const monthlyTotalCollection = getMonthlyTotalCollection(acc, month, collections);
+      return settings.bonusEnabled && monthlyTotalCollection >= settings.minimumMonthlyCollection;
+    });
+  }, [accounts, row.employee.id, month, bonusSettings, collections]);
 
   // Format Account List Display
   const accountListDisplay = useMemo(() => {
@@ -258,8 +269,10 @@ const SalarySlip: React.FC<SalarySlipProps> = ({ row, month, accounts, commissio
                         <td className="border border-slate-200 px-3 py-2 text-right font-medium text-rose-700">{fmt(row.deduction_abs)}</td>
                     </tr>
                     <tr>
-                        <td className="border border-slate-200 px-3 py-2 text-rose-800 font-semibold">অপকর্ম</td>
-                        <td className="border border-slate-200 px-3 py-2 text-right font-medium text-rose-800">{fmt(row.misconductDeduction || 0)}</td>
+                        <td className="border border-slate-200 px-3 py-2 text-rose-800 font-semibold">
+                            অপকর্ম <span className="text-xs text-slate-500 font-normal ml-1">({row.misconductDeduction || 0} Opk × 300)</span>
+                        </td>
+                        <td className="border border-slate-200 px-3 py-2 text-right font-medium text-rose-800">{fmt((row.misconductDeduction || 0) * 300)}</td>
                     </tr>
                     {(row.deduction_unlawful > 0 || row.deduction_others > 0 || row.deduction_tours > 0) && (
                          <tr>

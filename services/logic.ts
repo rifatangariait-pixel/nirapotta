@@ -152,7 +152,7 @@ export const recalculateEntry = (
     entry.deduction_cash_advance +
     deduction_late +
     deduction_abs +
-    (entry.misconductDeduction || 0) +
+    ((entry.misconductDeduction || 0) * 300) +
     entry.deduction_unlawful +
     entry.deduction_tours +
     entry.deduction_others;

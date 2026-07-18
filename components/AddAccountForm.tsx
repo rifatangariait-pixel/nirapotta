@@ -3,7 +3,6 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Employee, AccountOpening, User, Center, Branch } from '../types';
 import { Save, FilePlus, Upload, FileSpreadsheet, AlertCircle, CheckCircle, X, Download, Trash2, Edit2, ListChecks, User as UserIcon, Calendar, MapPin, Hash, Phone, Users, Loader2, UploadCloud, RefreshCw } from 'lucide-react';
 import { validateAccountRow } from '../services/importService';
-import * as XLSX from 'xlsx';
 
 interface AddAccountFormProps {
   employees: Employee[];

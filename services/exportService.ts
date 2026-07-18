@@ -1,5 +1,6 @@
 
-import { SalaryRow, AccountOpening, Employee, Branch, Center } from "../types";
+import { SalaryRow, AccountOpening, Employee, Branch, Center, BonusSettings, CenterCollectionRecord } from "../types";
+import { getMonthlyTotalCollection, checkAccountBonusEligibility, getQualifyingMonthForAccount } from "./accountService";
 
 export const exportToCSV = (rows: SalaryRow[], filename: string) => {
   const headers = [
@@ -59,7 +60,9 @@ export const exportAccountsToCSV = (
   accounts: AccountOpening[], 
   employees: Employee[], 
   branches: Branch[], 
-  filename: string
+  filename: string,
+  bonusSettings?: BonusSettings,
+  collections: CenterCollectionRecord[] = []
 ) => {
   const headers = [
     "Account Code",
@@ -77,9 +80,18 @@ export const exportAccountsToCSV = (
   const currentY = today.getFullYear();
   const currentM = today.getMonth() + 1;
 
+  const settings = bonusSettings || {
+    bonusEnabled: true,
+    bonusDelayMonths: 1,
+    minimumMonthlyCollection: 600
+  };
+
   const csvRows = accounts.map(acc => {
     const emp = employees.find(e => e.id === acc.opened_by_employee_id);
     const branch = branches.find(b => b.id === acc.branch_id);
+
+    const qualMonthStr = getQualifyingMonthForAccount(acc.opening_date, settings.bonusDelayMonths);
+    const totalCollection = getMonthlyTotalCollection(acc, qualMonthStr, collections);
 
     // Dynamic Status Logic for Export
     let statusString = "Eligible";
@@ -87,13 +99,10 @@ export const exportAccountsToCSV = (
     if (acc.is_counted) {
         statusString = `Counted (${acc.counted_month})`;
     } else {
-        const [openY, openM] = acc.opening_date.split('-').map(Number);
-        const diff = (currentY - openY) * 12 + (currentM - openM);
-
-        if (diff > 2) {
-            statusString = "Not Counted (Expired)";
-        } else if (acc.collection_amount < 600) {
-            statusString = "Pending (Low Amount)";
+        const eligibility = checkAccountBonusEligibility(acc, qualMonthStr, collections, settings, { ignoreIsCounted: true });
+        
+        if (!eligibility.eligible) {
+            statusString = eligibility.reason;
         }
     }
     
@@ -103,7 +112,7 @@ export const exportAccountsToCSV = (
     return [
       acc.account_code,
       acc.term,
-      acc.collection_amount,
+      totalCollection,
       empString,
       branch ? branch.name : 'Unknown',
       acc.opening_date,
@@ -119,7 +128,9 @@ export const exportAccountsToCSV = (
 export const exportAccountDetails = (
   account: AccountOpening, 
   employeeName: string, 
-  branchName: string
+  branchName: string,
+  bonusSettings?: BonusSettings,
+  collections: CenterCollectionRecord[] = []
 ) => {
   const headers = [
     "Account Code",
@@ -138,8 +149,14 @@ export const exportAccountDetails = (
   const today = new Date();
   const currentY = today.getFullYear();
   const currentM = today.getMonth() + 1;
-  const [openY, openM] = account.opening_date.split('-').map(Number);
-  const diff = (currentY - openY) * 12 + (currentM - openM);
+  const settings = bonusSettings || {
+    bonusEnabled: true,
+    bonusDelayMonths: 1,
+    minimumMonthlyCollection: 600
+  };
+
+  const qualMonthStr = getQualifyingMonthForAccount(account.opening_date, settings.bonusDelayMonths);
+  const totalCollection = getMonthlyTotalCollection(account, qualMonthStr, collections);
 
   let status = "Eligible";
   let bonusStatus = "Eligible";
@@ -147,18 +164,18 @@ export const exportAccountDetails = (
   if (account.is_counted) {
       status = "Processed";
       bonusStatus = "Bonus Paid";
-  } else if (diff > 2) {
-      status = "Not Counted";
-      bonusStatus = "Expired (Window Passed)";
-  } else if (account.collection_amount < 600) {
-      status = "Pending";
-      bonusStatus = "Not Eligible (< 600)";
+  } else {
+      const eligibility = checkAccountBonusEligibility(account, qualMonthStr, collections, settings, { ignoreIsCounted: true });
+      if (!eligibility.eligible) {
+          status = "Pending";
+          bonusStatus = eligibility.reason;
+      }
   }
 
   const row = [
     account.account_code,
     account.term,
-    account.collection_amount,
+    totalCollection,
     employeeName,
     branchName,
     account.opening_date,

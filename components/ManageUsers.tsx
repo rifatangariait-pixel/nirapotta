@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { User, Branch, UserRole, Employee } from '../types';
-import { UserPlus, Shield, Trash2, Edit2, KeyRound, Building, User as UserIcon, X } from 'lucide-react';
+import { UserPlus, Shield, Trash2, Edit2, KeyRound, Building, User as UserIcon, X, Upload } from 'lucide-react';
+import UserAvatar from './UserAvatar';
 
 interface ManageUsersProps {
   users: User[];
@@ -33,6 +34,128 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ users, branches, employees, o
   const [editBranchId, setEditBranchId] = useState('');
   const [editEmployeeId, setEditEmployeeId] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
+
+  // Profile image upload & drag-and-drop state & helpers
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [editIsDragActive, setEditIsDragActive] = useState(false);
+
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 150;
+          const MAX_HEIGHT = 150;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            resolve(dataUrl);
+          } else {
+            resolve(e.target?.result as string);
+          }
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setIsDragActive(true);
+    } else if (e.type === "dragleave") {
+      setIsDragActive(false);
+    }
+  };
+
+  const handleEditDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setEditIsDragActive(true);
+    } else if (e.type === "dragleave") {
+      setEditIsDragActive(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent, setAvatarFn: (val: string) => void) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/')) {
+        try {
+          const base64 = await compressImage(file);
+          setAvatarFn(base64);
+        } catch (err) {
+          console.error("Failed to process image:", err);
+          alert("Failed to process image. Please try another file.");
+        }
+      } else {
+        alert("Please drop an image file.");
+      }
+    }
+  };
+
+  const handleEditDrop = async (e: React.DragEvent, setAvatarFn: (val: string) => void) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditIsDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/')) {
+        try {
+          const base64 = await compressImage(file);
+          setAvatarFn(base64);
+        } catch (err) {
+          console.error("Failed to process image:", err);
+          alert("Failed to process image. Please try another file.");
+        }
+      } else {
+        alert("Please drop an image file.");
+      }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, setAvatarFn: (val: string) => void) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      try {
+        const base64 = await compressImage(file);
+        setAvatarFn(base64);
+      } catch (err) {
+        console.error("Failed to process image:", err);
+        alert("Failed to process image. Please try another file.");
+      }
+    }
+  };
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,13 +271,47 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ users, branches, employees, o
                       />
                      </div>
                   </div>
-                  <div>
-                     <label className="text-xs font-semibold text-slate-600 mb-1 block">Photo URL (Optional)</label>
-                     <input 
-                       type="text" value={avatar} onChange={e => setAvatar(e.target.value)}
-                       placeholder="https://example.com/photo.jpg"
-                       className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                     />
+                  <div className="md:col-span-2 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <label className="text-xs font-bold text-slate-700 mb-2 block">Profile Photo</label>
+                    <div className="flex flex-col md:flex-row gap-4 items-center">
+                      <div className="shrink-0">
+                        <UserAvatar url={avatar} name={name || 'New User'} className="w-20 h-20 border-2 border-indigo-200" />
+                      </div>
+                      <div className="flex-1 w-full space-y-3">
+                        <div 
+                          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors flex flex-col items-center justify-center ${
+                            isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 bg-white'
+                          }`}
+                          onDragEnter={handleDrag}
+                          onDragOver={handleDrag}
+                          onDragLeave={handleDrag}
+                          onDrop={(e) => handleDrop(e, setAvatar)}
+                          onClick={() => document.getElementById('add-avatar-file')?.click()}
+                        >
+                          <Upload size={20} className="text-slate-400 mb-1" />
+                          <p className="text-xs text-slate-600 font-medium">Drag & drop profile picture or <span className="text-indigo-600 hover:underline">browse</span></p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG (Auto-compressed)</p>
+                          <input 
+                            id="add-avatar-file" 
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            onChange={(e) => handleFileChange(e, setAvatar)} 
+                          />
+                        </div>
+
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">Or enter Photo URL</p>
+                          <input 
+                            type="text" 
+                            value={avatar} 
+                            onChange={e => setAvatar(e.target.value)}
+                            placeholder="https://example.com/photo.jpg"
+                            className="w-full border border-slate-300 bg-white rounded px-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-600 mb-1 block">Role</label>
@@ -228,7 +385,7 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ users, branches, employees, o
                 <div key={`${user.id}-${idx}`} className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition-shadow relative group">
                    <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                         <img src={user.avatar} alt={user.name} className="w-12 h-12 rounded-full border border-slate-100" />
+                         <UserAvatar url={user.avatar} name={user.name} className="w-12 h-12" />
                          <div>
                             <h4 className="font-bold text-slate-800">{user.name}</h4>
                             <p className="text-xs text-slate-500">@{user.username}</p>
@@ -324,11 +481,47 @@ const ManageUsers: React.FC<ManageUsersProps> = ({ users, branches, employees, o
 
                 <div>
                    <label className="text-xs font-semibold text-slate-600 mb-1 block">Photo URL</label>
-                   <input 
-                     type="text" value={editAvatar} onChange={e => setEditAvatar(e.target.value)}
-                     placeholder="https://example.com/photo.jpg"
-                     className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                   />
+                                       <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mt-2">
+                      <div className="flex flex-col sm:flex-row gap-4 items-center">
+                        <div className="shrink-0">
+                          <UserAvatar url={editAvatar} name={editName || 'User'} className="w-20 h-20 border-2 border-indigo-200" />
+                        </div>
+                        <div className="flex-1 w-full space-y-3">
+                          <div 
+                            className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors flex flex-col items-center justify-center ${
+                              editIsDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-indigo-400 bg-white'
+                            }`}
+                            onDragEnter={handleEditDrag}
+                            onDragOver={handleEditDrag}
+                            onDragLeave={handleEditDrag}
+                            onDrop={(e) => handleEditDrop(e, setEditAvatar)}
+                            onClick={() => document.getElementById('edit-avatar-file')?.click()}
+                          >
+                            <Upload size={20} className="text-slate-400 mb-1" />
+                            <p className="text-xs text-slate-600 font-medium">Drag & drop profile picture or <span className="text-indigo-600 hover:underline">browse</span></p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">JPG, PNG (Auto-compressed)</p>
+                            <input 
+                              id="edit-avatar-file" 
+                              type="file" 
+                              accept="image/*" 
+                              className="hidden" 
+                              onChange={(e) => handleFileChange(e, setEditAvatar)} 
+                            />
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 text-center">Or enter Photo URL</p>
+                            <input 
+                              type="text" 
+                              value={editAvatar} 
+                              onChange={e => setEditAvatar(e.target.value)}
+                              placeholder="https://example.com/photo.jpg"
+                              className="w-full border border-slate-300 bg-white rounded px-3 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                 </div>
                 
                 <div>

@@ -1,8 +1,4 @@
 
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
-import JSZip from 'jszip';
-
 /**
  * Captures a DOM element and returns it as a PDF Blob.
  * Generates a SINGLE CONTINUOUS PAGE to prevent row splitting.
@@ -17,6 +13,9 @@ export const createPDFBlob = async (elementId: string): Promise<Blob | null> => 
   try {
     // Wait a brief moment to ensure styles are applied and fonts loaded
     await new Promise(resolve => setTimeout(resolve, 500));
+
+    const { default: html2canvas } = await import('html2canvas');
+    const { jsPDF } = await import('jspdf');
 
     const canvas = await html2canvas(element, { 
       scale: 2, // Good quality
@@ -73,6 +72,7 @@ export const downloadSinglePDF = async (elementId: string, filename: string) => 
  * Bundles multiple named blobs into a ZIP and downloads it.
  */
 export const saveZip = async (files: { name: string; blob: Blob }[], zipFilename: string) => {
+  const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
   
   files.forEach(file => {

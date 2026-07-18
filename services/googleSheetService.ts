@@ -1,7 +1,6 @@
 
 // ... existing imports ...
-import { Branch, Employee, User, AccountOpening, Center, CenterCollectionRecord, CommissionStructure, Target, Advance, SalaryEntry } from '../types';
-import { KJUR } from 'jsrsasign';
+import { Branch, Employee, User, AccountOpening, Center, CenterCollectionRecord, CommissionStructure, Target, Advance, SalaryEntry, Expense, ExpenseCategory, Loan, BonusSettings } from '../types';
 
 // ... existing configuration code ...
 const getEnv = () => {
@@ -62,7 +61,11 @@ const SHEETS = {
   COLLECTIONS: 'Collections',
   TARGETS: 'Targets',
   ADVANCES: 'Advances',
-  SALARY_HISTORY: 'SalaryHistory'
+  SALARY_HISTORY: 'SalaryHistory',
+  EXPENSE_CATEGORIES: 'ExpenseCategories',
+  EXPENSES: 'Expenses',
+  LOANS: 'Loans',
+  APP_SETTINGS: 'AppSettings'
 };
 
 const SHEET_HEADERS = {
@@ -75,7 +78,11 @@ const SHEET_HEADERS = {
   [SHEETS.COLLECTIONS]: ['ID', 'Date', 'Month', 'BranchID', 'CenterCode', 'AccountID', 'EmployeeID', 'Amount', 'LoanAmount', 'CreatedBy', 'SubmittedAt', 'Type'], 
   [SHEETS.TARGETS]: ['ID', 'EmployeeID', 'Month', 'CollectionTarget', 'AccountTarget', 'Status'],
   [SHEETS.ADVANCES]: ['ID', 'EmployeeID', 'Amount', 'Date', 'TargetMonth', 'Status', 'Notes'],
-  [SHEETS.SALARY_HISTORY]: ['ID', 'SalarySheetID', 'Month', 'EmployeeID', 'BasicSalary', 'CommType', 'OwnCount', 'OwnColl', 'OffCount', 'OffColl', 'CenCount', 'CenColl', 'LoanColl', 'B1.5', 'B3', 'B5', 'B8', 'B10', 'B12', 'BNo', 'Late', 'Abs', 'DedAdv', 'DedLate', 'DedAbs', 'DedMisc', 'DedUnlaw', 'DedTours', 'DedOth', 'IncConv', 'TotalBk', 'TotalColl', 'TotalDed', 'Comm', 'Bonus', 'Final', 'Status', 'OwnMembers', 'OffMembers']
+  [SHEETS.SALARY_HISTORY]: ['ID', 'SalarySheetID', 'Month', 'EmployeeID', 'BasicSalary', 'CommType', 'OwnCount', 'OwnColl', 'OffCount', 'OffColl', 'CenCount', 'CenColl', 'LoanColl', 'B1.5', 'B3', 'B5', 'B8', 'B10', 'B12', 'BNo', 'Late', 'Abs', 'DedAdv', 'DedLate', 'DedAbs', 'DedMisc', 'DedUnlaw', 'DedTours', 'DedOth', 'IncConv', 'TotalBk', 'TotalColl', 'TotalDed', 'Comm', 'Bonus', 'Final', 'Status', 'OwnMembers', 'OffMembers'],
+  [SHEETS.EXPENSE_CATEGORIES]: ['ID', 'Name', 'Status'],
+  [SHEETS.EXPENSES]: ['ID', 'CategoryID', 'BranchID', 'Amount', 'Date', 'Notes', 'Status'],
+  [SHEETS.LOANS]: ['ID', 'MemberID', 'MemberName', 'LoanAmount', 'Interest', 'TotalInstallments', 'InstallmentAmount', 'PaidAmount', 'DueAmount', 'Status', 'StartDate', 'IssuedBy', 'ApprovedBy', 'BranchID'],
+  [SHEETS.APP_SETTINGS]: ['Key', 'Value', 'Status']
 };
 
 // HELPER: Sanitize value for Google Sheets (Prevent Undefined/NaN)
@@ -168,6 +175,7 @@ class GoogleSheetService {
         iat: now,
       };
       const header = { alg: "RS256", typ: "JWT" };
+      const { KJUR } = await import('jsrsasign');
       const signature = KJUR.jws.JWS.sign("RS256", JSON.stringify(header), JSON.stringify(claim), PRIVATE_KEY);
       const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
@@ -267,10 +275,32 @@ class GoogleSheetService {
       SHEETS.COMMISSIONS,
       SHEETS.TARGETS,
       SHEETS.ADVANCES,
-      SHEETS.USERS
+      SHEETS.USERS,
+      SHEETS.EXPENSE_CATEGORIES,
+      SHEETS.EXPENSES,
+      SHEETS.LOANS,
+      SHEETS.APP_SETTINGS
     ];
 
     const rawData = await this.batchFetchSheets(ranges);
+
+    // Initialize missing sheets if needed
+    if (!rawData[SHEETS.EXPENSE_CATEGORIES]) {
+      await this.writeRow(SHEETS.EXPENSE_CATEGORIES, SHEET_HEADERS[SHEETS.EXPENSE_CATEGORIES]);
+      rawData[SHEETS.EXPENSE_CATEGORIES] = [SHEET_HEADERS[SHEETS.EXPENSE_CATEGORIES]];
+    }
+    if (!rawData[SHEETS.EXPENSES]) {
+      await this.writeRow(SHEETS.EXPENSES, SHEET_HEADERS[SHEETS.EXPENSES]);
+      rawData[SHEETS.EXPENSES] = [SHEET_HEADERS[SHEETS.EXPENSES]];
+    }
+    if (!rawData[SHEETS.LOANS]) {
+      await this.writeRow(SHEETS.LOANS, SHEET_HEADERS[SHEETS.LOANS]);
+      rawData[SHEETS.LOANS] = [SHEET_HEADERS[SHEETS.LOANS]];
+    }
+    if (!rawData[SHEETS.APP_SETTINGS]) {
+      await this.writeRow(SHEETS.APP_SETTINGS, SHEET_HEADERS[SHEETS.APP_SETTINGS]);
+      rawData[SHEETS.APP_SETTINGS] = [SHEET_HEADERS[SHEETS.APP_SETTINGS]];
+    }
 
     return {
       branches: await this.getBranches(rawData[SHEETS.BRANCHES]),
@@ -281,7 +311,11 @@ class GoogleSheetService {
       commissions: await this.getCommissions(rawData[SHEETS.COMMISSIONS]),
       targets: await this.getTargets(rawData[SHEETS.TARGETS]),
       advances: await this.getAdvances(rawData[SHEETS.ADVANCES]),
-      users: await this.getUsers(rawData[SHEETS.USERS])
+      users: await this.getUsers(rawData[SHEETS.USERS]),
+      expenseCategories: await this.getExpenseCategories(rawData[SHEETS.EXPENSE_CATEGORIES]),
+      expenses: await this.getExpenses(rawData[SHEETS.EXPENSES]),
+      loans: await this.getLoans(rawData[SHEETS.LOANS]),
+      bonusSettings: await this.getBonusSettings(rawData[SHEETS.APP_SETTINGS])
     };
   }
 
@@ -465,16 +499,21 @@ class GoogleSheetService {
     const statusIdx = findHeaderIndex(headers, ['status'], 5);
     const desigIdx = findHeaderIndex(headers, ['designation'], 6);
     const salaryIdx = findHeaderIndex(headers, ['base', 'salary'], 7);
-    return rows.slice(1).map((row, index) => ({
-      rowIndex: index + 2,
-      id: safeStr(row[idIdx]),
-      name: safeStr(row[nameIdx]),
-      branch_id: safeStr(row[branchIdx]),
-      commission_type: safeStr(row[commIdx]),
-      status: normalizeStatus(row[statusIdx]) as any,
-      designation: safeStr(row[desigIdx]) || 'Staff',
-      base_salary: safeNum(row[salaryIdx])
-    })).filter(e => e.status === 'ACTIVE');
+    return rows.slice(1).map((row, index) => {
+      const empId = safeStr(row[idIdx]);
+      return {
+        rowIndex: index + 2,
+        id: empId,
+        employeeCode: empId,
+        employee_code: empId,
+        name: safeStr(row[nameIdx]),
+        branch_id: safeStr(row[branchIdx]),
+        commission_type: safeStr(row[commIdx]),
+        status: normalizeStatus(row[statusIdx]) as any,
+        designation: safeStr(row[desigIdx]) || 'Staff',
+        base_salary: safeNum(row[salaryIdx])
+      };
+    }).filter(e => e.status === 'ACTIVE');
   }
   
   async addEmployee(emp: Omit<Employee, 'rowIndex'>) {
@@ -544,6 +583,9 @@ class GoogleSheetService {
         term: safeNum(getVal(termIdx)),
         collection_amount: safeNum(getVal(amountIdx)),
         opened_by_employee_id: safeStr(getVal(empIdx)),
+        agentCode: safeStr(getVal(empIdx)),
+        assignedEmployeeId: safeStr(getVal(empIdx)),
+        employeeCode: safeStr(getVal(empIdx)),
         branch_id: safeStr(getVal(branchIdx)),
         opening_date: normalizeDate(getVal(dateIdx)),
         is_counted: String(getVal(countedIdx)).toUpperCase() === 'TRUE',
@@ -737,6 +779,7 @@ class GoogleSheetService {
         submittedAt: row[10] ? safeStr(row[10]) : undefined,
         branchId: safeStr(row[branchIdx]),
         centerCode: centerCode,
+        accountId: row[5] && row[5] !== 'NULL' ? safeStr(row[5]) : undefined,
         employeeId: safeStr(row[empIdx]),
         amount: safeNum(row[amountIdx]),
         loanAmount: loanAmount,
@@ -757,7 +800,7 @@ class GoogleSheetService {
           monthStr, 
           rec.branchId, 
           rec.centerCode, 
-          'NULL', 
+          rec.accountId || 'NULL', 
           rec.employeeId, 
           rec.amount, 
           rec.loanAmount || 0, // Index 8: Loan Amount
@@ -1028,6 +1071,198 @@ class GoogleSheetService {
       if (toInsert.length > 0) {
           await this.saveSalaryHistory(toInsert, month, toInsert[0].salary_sheet_id || 'SHEET_' + month);
       }
+  }
+
+  // --- EXPENSE CATEGORIES ---
+  async getExpenseCategories(preFetchedRows?: any[][]): Promise<ExpenseCategory[]> {
+    const rows = preFetchedRows || await this.fetchSheet(SHEETS.EXPENSE_CATEGORIES);
+    if (!rows || rows.length <= 1) return [];
+    return rows.slice(1).map((row: any[], index: number) => ({
+      rowIndex: index + 2,
+      id: safeStr(row[0]),
+      name: safeStr(row[1]),
+      status: normalizeStatus(row[2]) as any
+    })).filter(c => c.status !== 'INACTIVE');
+  }
+
+  async addExpenseCategory(category: ExpenseCategory) {
+    const row = [category.id, category.name, category.status || 'ACTIVE'];
+    return this.writeRows(SHEETS.EXPENSE_CATEGORIES, [row]);
+  }
+
+  // --- EXPENSES ---
+  async getExpenses(preFetchedRows?: any[][]): Promise<Expense[]> {
+    const rows = preFetchedRows || await this.fetchSheet(SHEETS.EXPENSES);
+    if (!rows || rows.length <= 1) return [];
+    return rows.slice(1).map((row: any[], index: number) => ({
+      rowIndex: index + 2,
+      id: safeStr(row[0]),
+      categoryId: safeStr(row[1]),
+      branchId: safeStr(row[2]),
+      amount: safeNum(row[3]),
+      date: normalizeDate(row[4]),
+      notes: safeStr(row[5]),
+      status: normalizeStatus(row[6]) as any
+    })).filter(e => e.status !== 'INACTIVE');
+  }
+
+  async addExpense(expense: Expense) {
+    const row = [
+      expense.id, 
+      expense.categoryId, 
+      expense.branchId, 
+      expense.amount, 
+      expense.date, 
+      expense.notes || '', 
+      expense.status || 'ACTIVE'
+    ];
+    return this.writeRows(SHEETS.EXPENSES, [row]);
+  }
+
+  async updateExpense(expense: Expense) {
+    if (!expense.rowIndex) return false;
+    const range = `${SHEETS.EXPENSES}!A${expense.rowIndex}:G${expense.rowIndex}`;
+    const row = [
+      expense.id, 
+      expense.categoryId, 
+      expense.branchId, 
+      expense.amount, 
+      expense.date, 
+      expense.notes || '', 
+      expense.status || 'ACTIVE'
+    ];
+    return this.updateRow(range, row);
+  }
+
+  // --- LOANS ---
+  async getLoans(preFetchedRows?: any[][]): Promise<Loan[]> {
+    const rows = preFetchedRows || await this.fetchSheet(SHEETS.LOANS);
+    if (!rows || rows.length <= 1) return [];
+    return rows.slice(1).map((row: any[], index: number) => ({
+      rowIndex: index + 2,
+      id: safeStr(row[0]),
+      memberId: safeStr(row[1]),
+      memberName: safeStr(row[2]),
+      loanAmount: safeNum(row[3]),
+      interest: safeNum(row[4]),
+      totalInstallments: safeNum(row[5]),
+      installmentAmount: safeNum(row[6]),
+      paidAmount: safeNum(row[7]),
+      dueAmount: safeNum(row[8]),
+      status: normalizeStatus(row[9]) as any,
+      startDate: normalizeDate(row[10]),
+      issuedBy: safeStr(row[11]),
+      approvedBy: safeStr(row[12]),
+      branchId: safeStr(row[13])
+    }));
+  }
+
+  async addLoan(loan: Loan) {
+    const row = [
+      loan.id,
+      loan.memberId,
+      loan.memberName || '',
+      loan.loanAmount,
+      loan.interest || 0,
+      loan.totalInstallments,
+      loan.installmentAmount,
+      loan.paidAmount,
+      loan.dueAmount,
+      loan.status || 'ACTIVE',
+      loan.startDate,
+      loan.issuedBy || '',
+      loan.approvedBy || '',
+      loan.branchId || ''
+    ];
+    return this.writeRows(SHEETS.LOANS, [row]);
+  }
+
+  async updateLoan(loan: Loan) {
+    if (!loan.rowIndex) {
+      const loans = await this.getLoans();
+      const existing = loans.find(l => l.id === loan.id);
+      if (existing && existing.rowIndex) {
+        loan.rowIndex = existing.rowIndex;
+      } else {
+        throw new Error('Loan not found for update');
+      }
+    }
+    const range = `${SHEETS.LOANS}!A${loan.rowIndex}:N${loan.rowIndex}`;
+    const row = [
+      loan.id,
+      loan.memberId,
+      loan.memberName || '',
+      loan.loanAmount,
+      loan.interest || 0,
+      loan.totalInstallments,
+      loan.installmentAmount,
+      loan.paidAmount,
+      loan.dueAmount,
+      loan.status || 'ACTIVE',
+      loan.startDate,
+      loan.issuedBy || '',
+      loan.approvedBy || '',
+      loan.branchId || ''
+    ];
+    return this.updateRow(range, row);
+  }
+
+  async getBonusSettings(preFetchedRows?: any[][]): Promise<BonusSettings> {
+    try {
+      const rows = preFetchedRows || await this.fetchSheet(SHEETS.APP_SETTINGS);
+      if (!rows || rows.length < 2) {
+        return {
+          bonusEnabled: true,
+          bonusDelayMonths: 1,
+          minimumMonthlyCollection: 600
+        };
+      }
+      const bonusRow = rows.slice(1).find(r => safeStr(r[0]) === 'bonusSettings');
+      if (bonusRow && safeStr(bonusRow[1])) {
+        try {
+          const parsed = JSON.parse(safeStr(bonusRow[1]));
+          return {
+            bonusEnabled: parsed.bonusEnabled ?? true,
+            bonusDelayMonths: parsed.bonusDelayMonths ?? 1,
+            minimumMonthlyCollection: parsed.minimumMonthlyCollection ?? parsed.minimumDeposit ?? 600
+          };
+        } catch (e) {
+          console.error("Failed to parse bonus settings", e);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch bonus settings", e);
+    }
+    return {
+      bonusEnabled: true,
+      bonusDelayMonths: 1,
+      minimumMonthlyCollection: 600
+    };
+  }
+
+  async saveBonusSettings(settings: BonusSettings) {
+    let rows: any[][] = [];
+    try {
+      rows = await this.fetchSheet(SHEETS.APP_SETTINGS);
+    } catch (e) {
+      console.warn("Could not fetch APP_SETTINGS sheet, trying to write directly", e);
+    }
+    const valueStr = JSON.stringify(settings);
+    
+    let existingIndex = -1;
+    if (rows && rows.length > 0) {
+      existingIndex = rows.findIndex(r => safeStr(r[0]) === 'bonusSettings');
+    }
+    
+    if (existingIndex !== -1) {
+      const rowIndex = existingIndex + 1;
+      const range = `${SHEETS.APP_SETTINGS}!A${rowIndex}:C${rowIndex}`;
+      const row = ['bonusSettings', valueStr, 'ACTIVE'];
+      return this.updateRow(range, row);
+    } else {
+      const row = ['bonusSettings', valueStr, 'ACTIVE'];
+      return this.writeRow(SHEETS.APP_SETTINGS, row);
+    }
   }
 }
 

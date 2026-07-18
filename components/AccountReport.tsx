@@ -1,8 +1,20 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { AccountOpening, Branch, Employee, UserRole } from '../types';
+import { AccountOpening, Branch, Employee, UserRole, BonusSettings, CenterCollectionRecord } from '../types';
 import { exportAccountsToCSV, exportAccountDetails } from '../services/exportService';
+import { getMonthlyTotalCollection, checkAccountBonusEligibility } from '../services/accountService';
 import { Download, Search, Edit2, Trash2, X, Save, AlertTriangle, FileDown, CheckCircle, Users, Wallet, Clock, AlertCircle, Coins, BadgeCheck, Timer, User, UserCheck, RefreshCw } from 'lucide-react';
+
+function getQualifyingMonthForAccount(openingDate: string, delayMonths: number): string {
+  const [openY, openM] = openingDate.split('-').map(Number);
+  let qualM = openM + delayMonths;
+  let qualY = openY;
+  while (qualM > 12) {
+    qualM -= 12;
+    qualY += 1;
+  }
+  return `${qualY}-${String(qualM).padStart(2, '0')}`;
+}
 
 interface AccountReportProps {
   accounts: AccountOpening[];
@@ -12,13 +24,31 @@ interface AccountReportProps {
   onDelete: (id: number) => void;
   onRefresh?: () => void;
   userRole: UserRole;
+  bonusSettings?: BonusSettings;
+  collections?: CenterCollectionRecord[];
 }
 
-const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, branches, onEdit, onDelete, onRefresh, userRole }) => {
+const AccountReport: React.FC<AccountReportProps> = ({ 
+  accounts, 
+  employees, 
+  branches, 
+  onEdit, 
+  onDelete, 
+  onRefresh, 
+  userRole,
+  bonusSettings,
+  collections = []
+}) => {
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const settings = useMemo(() => bonusSettings || {
+    bonusEnabled: true,
+    bonusDelayMonths: 1,
+    minimumMonthlyCollection: 600
+  }, [bonusSettings]);
 
   // Editing State
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -64,11 +94,11 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
 
       // 4. Search Filter
       if (searchTerm) {
-        const term = searchTerm.toLowerCase();
+        const term = searchTerm.trim().toLowerCase();
         const emp = employees.find(e => e.id === acc.opened_by_employee_id);
-        const codeMatch = acc.account_code.toLowerCase().includes(term);
+        const codeMatch = acc.account_code.trim().toLowerCase() === term;
         const empMatch = emp?.name.toLowerCase().includes(term);
-        const empIdMatch = emp?.id.toLowerCase().includes(term);
+        const empIdMatch = emp?.id.trim().toLowerCase() === term;
         if (!codeMatch && !empMatch && !empIdMatch) return false;
       }
 
@@ -86,25 +116,22 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
     let totalCollection = 0;
     let counted = 0;
 
-    const today = new Date();
-    const currentY = today.getFullYear();
-    const currentM = today.getMonth() + 1;
-
     filteredData.forEach(acc => {
         total++;
-        totalCollection += acc.collection_amount;
+        const qualMonthStr = getQualifyingMonthForAccount(acc.opening_date, settings.bonusDelayMonths);
+        const colAmt = getMonthlyTotalCollection(acc, qualMonthStr, collections);
+        totalCollection += colAmt;
         
-        if (acc.collection_amount >= 600) bonusable++;
-        if (acc.is_counted) counted++;
+        const eligibility = checkAccountBonusEligibility(acc, qualMonthStr, collections, settings, { ignoreIsCounted: true });
 
-        const [openY, openM] = acc.opening_date.split('-').map(Number);
-        const diff = (currentY - openY) * 12 + (currentM - openM);
+        if (eligibility.eligible) bonusable++;
+        if (acc.is_counted) counted++;
         
-        if (!acc.is_counted && diff > 1) expired++;
+        if (!acc.is_counted && eligibility.reason === "Bonus already received") expired++;
     });
 
     return { total, bonusable, expired, totalCollection, counted };
-  }, [filteredData]);
+  }, [filteredData, settings, collections]);
 
   const selectedEmployeeDetails = useMemo(() => {
       if (selectedEmployeeId === 'all') return null;
@@ -113,7 +140,7 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
 
   const handleExport = () => {
     const filename = `Account_Report_${selectedMonth || 'All_Months'}`;
-    exportAccountsToCSV(filteredData, employees, branches, filename);
+    exportAccountsToCSV(filteredData, employees, branches, filename, bonusSettings, collections);
   };
 
   const handleDownloadSingle = (acc: AccountOpening) => {
@@ -121,7 +148,7 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
     const branch = branches.find(b => b.id === acc.branch_id);
     // Include ID in the single export as well
     const empNameWithId = emp ? `${emp.name} (${emp.id})` : 'Unknown';
-    exportAccountDetails(acc, empNameWithId, branch?.name || 'Unknown');
+    exportAccountDetails(acc, empNameWithId, branch?.name || 'Unknown', bonusSettings, collections);
   };
 
   const handleDelete = (id: number) => {
@@ -180,13 +207,46 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
         );
     }
 
-    const today = new Date();
-    const currentY = today.getFullYear();
-    const currentM = today.getMonth() + 1;
-    const [openY, openM] = acc.opening_date.split('-').map(Number);
-    const diff = (currentY - openY) * 12 + (currentM - openM);
+    const bookStatus = acc.status || 'ACTIVE';
+    if (bookStatus.toUpperCase() === 'CLOSED') {
+        return (
+             <span className="flex items-center gap-1 text-red-700 font-bold text-[11px] bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
+                <X size={12} />
+                Closed
+            </span>
+        );
+    }
+    if (bookStatus.toUpperCase() === 'BLOCKED') {
+        return (
+             <span className="flex items-center gap-1 text-rose-700 font-bold text-[11px] bg-rose-50 px-2.5 py-1 rounded-full border border-rose-100">
+                <AlertTriangle size={12} />
+                Blocked
+            </span>
+        );
+    }
 
-    if (diff > 1) {
+    const qualMonthStr = getQualifyingMonthForAccount(acc.opening_date, settings.bonusDelayMonths);
+    const eligibility = checkAccountBonusEligibility(acc, qualMonthStr, collections, settings, { ignoreIsCounted: true });
+
+    if (eligibility.eligible) {
+        return (
+            <span className="flex items-center gap-1 text-blue-700 font-bold text-[11px] bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100">
+                <Timer size={12} />
+                Eligible
+            </span>
+        );
+    }
+
+    if (eligibility.reason === "Bonus disabled in settings") {
+        return (
+             <span className="flex items-center gap-1 text-slate-500 font-bold text-[11px] bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+                <AlertCircle size={12} />
+                Disabled
+            </span>
+        );
+    }
+
+    if (eligibility.reason === "Bonus already received") {
         return (
              <span className="flex items-center gap-1 text-slate-500 font-bold text-[11px] bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
                 <Clock size={12} />
@@ -195,7 +255,7 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
         );
     }
 
-    if (acc.collection_amount < 600) {
+    if (eligibility.reason === "Amount below minimum") {
         return (
             <span className="flex items-center gap-1 text-amber-700 font-bold text-[11px] bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100">
                 <AlertCircle size={12} />
@@ -205,9 +265,9 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
     }
 
     return (
-        <span className="flex items-center gap-1 text-blue-700 font-bold text-[11px] bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100">
+        <span className="flex items-center gap-1 text-yellow-700 font-bold text-[11px] bg-yellow-50 px-2.5 py-1 rounded-full border border-yellow-100">
             <Timer size={12} />
-            Eligible
+            {eligibility.reason}
         </span>
     );
   };
@@ -442,10 +502,13 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
                 filteredData.map(acc => {
                   const employee = employees.find(e => e.id === acc.opened_by_employee_id);
                   const branch = branches.find(b => b.id === acc.branch_id);
-                  const isBonusable = acc.collection_amount >= 600;
+                  const qualMonthStr = getQualifyingMonthForAccount(acc.opening_date, settings.bonusDelayMonths);
+                  const eligibility = checkAccountBonusEligibility(acc, qualMonthStr, collections, settings, { ignoreIsCounted: true });
+                  const isBonusable = eligibility.eligible;
+                  const totalCollection = getMonthlyTotalCollection(acc, qualMonthStr, collections);
 
                   return (
-                    <tr key={acc.id} className="hover:bg-slate-50/80 transition-colors">
+                    <tr key={`${acc.id}-${acc.rowIndex}`} className="hover:bg-slate-50/80 transition-colors">
                       <td className="p-4 font-mono font-medium text-slate-700 whitespace-nowrap">{acc.account_code}</td>
                       <td className="p-4 font-mono text-slate-600 whitespace-nowrap">{acc.center_code}</td>
                       <td className="p-4 font-medium text-slate-800 whitespace-nowrap">{acc.customer_name}</td>
@@ -459,10 +522,10 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                             <span className={`font-mono font-bold text-sm ${isBonusable ? 'text-emerald-700' : 'text-amber-600'}`}>
-                                ৳{acc.collection_amount.toLocaleString()}
+                                ৳{totalCollection.toLocaleString()}
                             </span>
                             {!isBonusable && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Low Amount (< 600)"></span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title={eligibility.reason}></span>
                             )}
                         </div>
                       </td>
@@ -537,7 +600,7 @@ const AccountReport: React.FC<AccountReportProps> = ({ accounts, employees, bran
                     </div>
                     {accounts.length === 0 
                         ? "No accounts found in the database. Add some accounts first." 
-                        : "No account records found matching filters."}
+                        : "No account found"}
                   </td>
                 </tr>
               )}

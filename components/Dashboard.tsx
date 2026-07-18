@@ -1,8 +1,9 @@
 
 import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Branch, SalaryRow, AccountOpening, Employee, Target, CenterCollectionRecord } from '../types';
-import { Users, Building, TrendingUp, FilePlus2, Trophy, Percent, Medal, Crown, Target as TargetIcon, AlertTriangle, Calendar, ChevronDown, ChevronUp, Filter, CheckCircle } from 'lucide-react';
+import { Branch, SalaryRow, AccountOpening, Employee, Target, CenterCollectionRecord, BonusSettings } from '../types';
+import { getMonthlyTotalCollection, checkAccountBonusEligibility, getQualifyingMonthForAccount } from '../services/accountService';
+import { Users, Building, TrendingUp, FilePlus2, Trophy, Percent, Medal, Crown, Target as TargetIcon, AlertTriangle, Calendar, ChevronDown, ChevronUp, Filter, CheckCircle, Coins } from 'lucide-react';
 import { translations, Language } from '../services/translations';
 
 interface DashboardProps {
@@ -15,6 +16,7 @@ interface DashboardProps {
   centerRecords?: CenterCollectionRecord[];
   targets?: Target[];
   currentUser?: { role: string; employee_id?: string; branch_id?: string };
+  bonusSettings?: BonusSettings;
 }
 
 // --- HELPERS ---
@@ -62,8 +64,13 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.Re
   </div>
 );
 
-const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, accounts, month, language, centerRecords = [], targets = [], currentUser }) => {
+const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, accounts, month, language, centerRecords = [], targets = [], currentUser, bonusSettings }) => {
   const t = translations[language];
+  const settings = bonusSettings || {
+    bonusEnabled: true,
+    bonusDelayMonths: 1,
+    minimumMonthlyCollection: 600
+  };
   const [expandedBranch, setExpandedBranch] = useState<string | null>(null);
   const [showAtRiskOnly, setShowAtRiskOnly] = useState(false);
 
@@ -196,9 +203,9 @@ const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, 
     });
     const chartData = Object.entries(salaryByBranch).map(([name, salary]) => ({ name, salary }));
 
-    // Top Account Openers (All Time)
+    // Top Account Openers (Selected Month)
     const openerCounts: Record<string, number> = {};
-    accounts.forEach(acc => {
+    monthlyAccounts.forEach(acc => {
         const empName = employees.find(e => e.id === acc.opened_by_employee_id)?.name || 'Unknown';
         openerCounts[empName] = (openerCounts[empName] || 0) + 1;
     });
@@ -209,8 +216,17 @@ const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, 
 
     // Bonus Stats (Based on Account Opening Data directly for immediate feedback)
     // Counts books opened in the selected month that are eligible
+    const settings = bonusSettings || {
+      bonusEnabled: true,
+      bonusDelayMonths: 1,
+      minimumMonthlyCollection: 600
+    };
     const totalBooksInMonth = newAccountsCount;
-    const eligibleBooksInMonth = monthlyAccounts.filter(a => a.collection_amount >= 600).length;
+    const eligibleBooksInMonth = monthlyAccounts.filter(a => {
+        const qualMonthStr = getQualifyingMonthForAccount(a.opening_date, settings.bonusDelayMonths);
+        const eligibility = checkAccountBonusEligibility(a, qualMonthStr, centerRecords, settings, { ignoreIsCounted: true });
+        return eligibility.eligible;
+    }).length;
 
     const percentage = totalBooksInMonth > 0 ? Math.round((eligibleBooksInMonth / totalBooksInMonth) * 100) : 0;
     
@@ -276,7 +292,9 @@ const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, 
         if (rankings[id]) {
             rankings[id].totalBooks += 1;
             // Live eligibility check
-            if (acc.collection_amount >= 600) {
+            const qualMonthStr = getQualifyingMonthForAccount(acc.opening_date, settings.bonusDelayMonths);
+            const eligibility = checkAccountBonusEligibility(acc, qualMonthStr, centerRecords, settings, { ignoreIsCounted: true });
+            if (eligibility.eligible) {
                 rankings[id].bonusableBooks += 1;
             }
         }
@@ -300,7 +318,7 @@ const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, 
             totalBooks: data.totalBooks
         }));
 
-  }, [centerRecords, accounts, month, employees, branches]);
+  }, [centerRecords, accounts, month, employees, branches, bonusSettings]);
 
 
   // --- ROLE BASED VIEWS ---
@@ -408,6 +426,152 @@ const Dashboard: React.FC<DashboardProps> = ({ branches, employees, activeRows, 
                       </div>
                   </div>
               </div>
+
+              {/* REAL-TIME PAYROLL, COMMISSION & OPK SUMMARY */}
+              {(() => {
+                  const myRow = activeRows.find(row => row.employee_id === currentUser?.employee_id);
+                  if (!myRow) {
+                      return (
+                          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm text-center">
+                              <p className="text-sm text-slate-500">
+                                  No active ledger/payroll row found for you this month.
+                              </p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                  Ledgers are generated by Branch Managers or Super Admins.
+                              </p>
+                          </div>
+                      );
+                  }
+
+                  const bookOpkCount = myRow.misconductDeduction || 0;
+                  const bookOpkPenalty = bookOpkCount * 300;
+                  const otherDeductions = myRow.deduction_others || 0;
+                  const totalOpkPenalty = bookOpkPenalty + otherDeductions;
+
+                  return (
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                          {/* Left: Scanned & Commissionable Books Grid */}
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                              <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-4 text-white">
+                                  <h4 className="font-bold text-sm">My Scanned Books (Eligible)</h4>
+                                  <p className="text-[11px] text-emerald-100 mt-0.5">Scans eligible for bonus & commission</p>
+                              </div>
+                              <div className="p-5 grid grid-cols-2 gap-3 flex-1">
+                                  <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100 flex flex-col justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Book 1.5</span>
+                                      <span className="text-lg font-bold text-emerald-700 font-mono mt-1">{myRow.book_1_5 || 0} <span className="text-xs text-slate-400 font-normal">Books</span></span>
+                                  </div>
+                                  <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100 flex flex-col justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Book 3</span>
+                                      <span className="text-lg font-bold text-emerald-700 font-mono mt-1">{myRow.book_3 || 0} <span className="text-xs text-slate-400 font-normal">Books</span></span>
+                                  </div>
+                                  <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100 flex flex-col justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Book 5</span>
+                                      <span className="text-lg font-bold text-emerald-700 font-mono mt-1">{myRow.book_5 || 0} <span className="text-xs text-slate-400 font-normal">Books</span></span>
+                                  </div>
+                                  <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100 flex flex-col justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Book 8</span>
+                                      <span className="text-lg font-bold text-emerald-700 font-mono mt-1">{myRow.book_8 || 0} <span className="text-xs text-slate-400 font-normal">Books</span></span>
+                                  </div>
+                                  <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100 flex flex-col justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Book 10</span>
+                                      <span className="text-lg font-bold text-emerald-700 font-mono mt-1">{myRow.book_10 || 0} <span className="text-xs text-slate-400 font-normal">Books</span></span>
+                                  </div>
+                                  <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100 flex flex-col justify-between">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase">Book 12</span>
+                                      <span className="text-lg font-bold text-emerald-700 font-mono mt-1">{myRow.book_12 || 0} <span className="text-xs text-slate-400 font-normal">Books</span></span>
+                                  </div>
+                              </div>
+                              <div className="bg-slate-50 p-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-600 font-medium">
+                                  <span>Total Books:</span>
+                                  <span className="font-bold text-slate-800">{myRow.total_books || 0}</span>
+                              </div>
+                          </div>
+
+                          {/* Middle: OPK Counters & Penalty Summary */}
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                              <div className="bg-gradient-to-r from-red-600 to-rose-600 p-4 text-white">
+                                  <h4 className="font-bold text-sm">My Penalties (Wrong Operations)</h4>
+                                  <p className="text-[11px] text-rose-100 mt-0.5">Real-time wrong scans & misconduct records</p>
+                              </div>
+                              <div className="p-5 space-y-4 flex-1">
+                                  {/* Book OPK Card */}
+                                  <div className="bg-red-50/50 p-3 rounded-lg border border-red-100 flex justify-between items-center">
+                                      <div>
+                                          <span className="block text-xs font-bold text-red-800">Scan Deductions (Book OPK)</span>
+                                          <span className="block text-[10px] text-slate-500 font-medium mt-0.5">Wrong accounts, duplicate scans</span>
+                                      </div>
+                                      <div className="text-right">
+                                          <span className="block font-mono font-bold text-red-600 text-sm">Count: {bookOpkCount}</span>
+                                          <span className="block font-mono font-bold text-red-800 text-xs">-৳{bookOpkPenalty.toLocaleString()}</span>
+                                      </div>
+                                  </div>
+
+                                  {/* Other Deductions Card */}
+                                  <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-100 flex justify-between items-center">
+                                      <div>
+                                          <span className="block text-xs font-bold text-amber-800">Manual Penalties (Other OPK)</span>
+                                          <span className="block text-[10px] text-slate-500 font-medium mt-0.5">Office misconduct, discipline, rules</span>
+                                      </div>
+                                      <div className="text-right">
+                                          <span className="block font-mono font-bold text-amber-800 text-xs">-৳{otherDeductions.toLocaleString()}</span>
+                                      </div>
+                                  </div>
+                              </div>
+                              <div className="bg-red-50 p-3 border-t border-red-100 flex justify-between items-center text-xs text-red-800 font-bold">
+                                  <span>Total OPK Penalty:</span>
+                                  <span>-৳{totalOpkPenalty.toLocaleString()}</span>
+                              </div>
+                          </div>
+
+                          {/* Right: Payroll Summary Card */}
+                          <div className="bg-slate-900 rounded-xl shadow-lg overflow-hidden text-white flex flex-col justify-between">
+                              <div className="p-5 flex-1 flex flex-col justify-between">
+                                  <div>
+                                      <div className="flex justify-between items-center mb-4">
+                                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payroll Estimation</span>
+                                          <span className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[10px] px-2 py-0.5 rounded font-bold">Live Preview</span>
+                                      </div>
+                                      <h3 className="text-lg font-bold mb-6">Monthly Salary Calculation</h3>
+                                  </div>
+
+                                  <div className="space-y-3 font-medium text-xs text-slate-300">
+                                      <div className="flex justify-between border-b border-white/5 pb-2">
+                                          <span>Basic Salary:</span>
+                                          <span className="font-mono text-white">৳{(myRow.basic_salary || 0).toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-white/5 pb-2">
+                                          <span>Commission Earned:</span>
+                                          <span className="font-mono text-white">৳{(myRow.commission || 0).toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-white/5 pb-2">
+                                          <span>Monthly Bonus:</span>
+                                          <span className="font-mono text-white">৳{(myRow.bonus || 0).toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between border-b border-white/5 pb-2 text-rose-300">
+                                          <span>Other Deductions (Late/Absent/Adv):</span>
+                                          <span className="font-mono">-৳{((myRow.deduction_late || 0) + (myRow.deduction_abs || 0) + (myRow.deduction_cash_advance || 0) + (myRow.deduction_unlawful || 0) + (myRow.deduction_tours || 0)).toLocaleString()}</span>
+                                      </div>
+                                      <div className="flex justify-between text-red-300">
+                                          <span>OPK Penalties:</span>
+                                          <span className="font-mono">-৳{totalOpkPenalty.toLocaleString()}</span>
+                                      </div>
+                                  </div>
+
+                                  <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-end">
+                                      <div>
+                                          <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Estimated Net Salary</span>
+                                          <span className="text-2xl font-bold font-mono text-emerald-400">৳{(myRow.final_salary || 0).toLocaleString()}</span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 text-right">
+                                          Real-time update<br/>upon barcode scans
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  );
+              })()}
           </div>
       );
   };
