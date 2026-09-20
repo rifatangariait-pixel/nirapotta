@@ -366,9 +366,36 @@ const SalaryTableRow: React.FC<{
       return;
     }
 
-    // --- CASE: WRONG BOOK / INVALID COMMISSION BOOK ---
+    // --- CASE: BOOK TERM / COMMISSION BOOK VALIDATION ---
     const term = parseFloat(String(foundAccount.term));
+
+    // 6 Months (0.5Y) and 1 Year (1Y) are valid books,
+    // but they NEVER receive a bonus. They must not create an OPK penalty.
+    const noBonusTerms = [0.5, 1];
     const supportedTerms = [1.5, 3, 5, 8, 10, 12];
+
+    if (noBonusTerms.includes(term)) {
+      setScannedCodes(prev => [...prev, foundAccount.account_code]);
+      onAccountScanned(foundAccount.account_code);
+
+      setScanStatus('success');
+      playSuccessSound();
+      showToast(
+        term === 0.5 ? 'ℹ️ 6 Months Book - No Bonus' : 'ℹ️ 1 Year Book - No Bonus',
+        'info'
+      );
+      logAuditScan(scannedCode, 'No Bonus Term', foundAccount);
+
+      // Persist the scan, but do not increment any commissionable book field.
+      persistScanResult(row, foundAccount.account_code, false);
+
+      setCode('');
+      setTimeout(() => {
+        scanInputRef.current?.focus();
+      }, 50);
+      return;
+    }
+
     if (!supportedTerms.includes(term)) {
       // Increase Book OPK by 1
       const newVal = (row.misconductDeduction || 0) + 1;
@@ -691,6 +718,9 @@ const SalaryTableRow: React.FC<{
       </td>
 
       {/* --- GROUP: COMMISSIONABLE ITEMS --- */}
+      {/* 6M and 1Y are valid book types but are permanently non-bonus. */}
+      <td className="p-3 bg-[#F8FAFC]"><div className="flex items-center justify-center h-9 text-xs font-bold rounded-md border bg-slate-100 text-slate-500 border-slate-200">0</div></td>
+      <td className="p-3 bg-[#F8FAFC]"><div className="flex items-center justify-center h-9 text-xs font-bold rounded-md border bg-slate-100 text-slate-500 border-slate-200">0</div></td>
       <td className="p-3 bg-[#F8FAFC]"><div className={countBox('book_1_5')}>{row.book_1_5 || '-'}</div></td>
       <td className="p-3 bg-[#F8FAFC]"><div className={countBox('book_3')}>{row.book_3 || '-'}</div></td>
       <td className="p-3 bg-[#F8FAFC]"><div className={countBox('book_5')}>{row.book_5 || '-'}</div></td>
@@ -1313,7 +1343,7 @@ const SalaryTable: React.FC<SalaryTableProps> = ({ rows, accounts, commissionRat
               <th className="p-3 bg-white border-r border-slate-200"></th>
 
               {/* Books Group - #F8FAFC */}
-              <th className="p-3 text-center border-r border-slate-200 bg-[#F8FAFC]" colSpan={8}>Commissionable Items (Books)</th>
+              <th className="p-3 text-center border-r border-slate-200 bg-[#F8FAFC]" colSpan={9}>Commissionable Items (Books)</th>
               
               {/* Deductions Group - White/Light Red */}
               <th className="p-3 text-center border-r border-slate-200 bg-red-50/20" colSpan={7}>Deductions</th>
@@ -1342,6 +1372,9 @@ const SalaryTable: React.FC<SalaryTableProps> = ({ rows, accounts, commissionRat
               </th>
 
               {/* Books - #F8FAFC */}
+              {/* 6 Months and 1 Year are displayed for tracking, but always have 0 bonus count. */}
+              <th className="p-3 text-center min-w-[50px] bg-[#F8FAFC]">6M</th>
+              <th className="p-3 text-center min-w-[50px] bg-[#F8FAFC]">1Y</th>
               <th className="p-3 text-center min-w-[50px] bg-[#F8FAFC]">1.5</th>
               <th className="p-3 text-center min-w-[50px] bg-[#F8FAFC]">3</th>
               <th className="p-3 text-center min-w-[50px] bg-[#F8FAFC]">5</th>
