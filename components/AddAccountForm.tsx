@@ -517,7 +517,20 @@ const AddAccountForm: React.FC<AddAccountFormProps> = ({ employees, existingAcco
                                   value={formData.term}
                                   onChange={e => handleInputChange('term', Number(e.target.value))}
                               >
-                                  {[1.5, 3, 5, 8, 10, 12].map(t => <option key={t} value={t}>{t} Years</option>)}
+                                  {[
+  { value: 0.5, label: '6 Months' },
+  { value: 1, label: '1 Year' },
+  { value: 1.5, label: '1.5 Years' },
+  { value: 3, label: '3 Years' },
+  { value: 5, label: '5 Years' },
+  { value: 8, label: '8 Years' },
+  { value: 10, label: '10 Years' },
+  { value: 12, label: '12 Years' },
+].map(t => (
+  <option key={t.value} value={t.value}>
+    {t.label}
+  </option>
+))}
                               </select>
                           </div>
                           <div className="md:col-span-2">
